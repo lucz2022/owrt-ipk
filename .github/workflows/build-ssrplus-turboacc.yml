@@ -12,6 +12,7 @@ jobs:
       SDK_DIR: ${{ github.workspace }}/sdk
       DL_DIR:  ${{ github.workspace }}/dl
       CCACHE_DIR: ${{ github.workspace }}/ccache
+
     steps:
       - uses: actions/checkout@v4
 
@@ -28,8 +29,8 @@ jobs:
         run: |
           mkdir -p "${DL_DIR}" "${CCACHE_DIR}" "${SDK_DIR}"
 
-      # ---- caches（用 actions/cache@v4，名称里有冒号一律加引号）----
-      - name: "Restore cache - dl"
+      # ---- caches ----
+      - name: "Cache - dl"
         uses: actions/cache@v4
         with:
           path: ${{ env.DL_DIR }}
@@ -37,7 +38,7 @@ jobs:
           restore-keys: |
             dl-${{ env.SDK_VER }}-x86_64-
 
-      - name: "Restore cache - ccache"
+      - name: "Cache - ccache"
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -45,7 +46,7 @@ jobs:
           restore-keys: |
             ccache-${{ env.SDK_VER }}-x86_64-
 
-      - name: "Restore cache - host toolchains"
+      - name: "Cache - host toolchains"
         uses: actions/cache@v4
         with:
           path: |
@@ -82,14 +83,15 @@ jobs:
         run: |
           set -e
           cd "${SDK_DIR}"
-          cat > feeds.conf.default <<'EOF'
-src-git packages  https://git.openwrt.org/feed/packages.git;openwrt-23.05
-src-git luci      https://git.openwrt.org/project/luci.git;openwrt-23.05
-src-git routing   https://git.openwrt.org/feed/routing.git;openwrt-23.05
-src-git telephony https://git.openwrt.org/feed/telephony.git;openwrt-23.05
-src-git helloworld https://github.com/fw876/helloworld
-src-git turboacc   https://github.com/chenmozhijin/turboacc.git
-EOF
+          {
+            printf "%s\n" "src-git packages  https://git.openwrt.org/feed/packages.git;openwrt-23.05"
+            printf "%s\n" "src-git luci      https://git.openwrt.org/project/luci.git;openwrt-23.05"
+            printf "%s\n" "src-git routing   https://git.openwrt.org/feed/routing.git;openwrt-23.05"
+            printf "%s\n" "src-git telephony https://git.openwrt.org/feed/telephony.git;openwrt-23.05"
+            printf "%s\n" "src-git helloworld https://github.com/fw876/helloworld"
+            printf "%s\n" "src-git turboacc   https://github.com/chenmozhijin/turboacc.git"
+          } > feeds.conf.default
+
           ./scripts/feeds clean
           ./scripts/feeds update -a
           ./scripts/feeds install -p helloworld luci-app-ssr-plus
@@ -100,30 +102,31 @@ EOF
         run: |
           set -e
           cd "${SDK_DIR}"
-          cat > seed.config <<'EOF'
-CONFIG_TARGET_x86=y
-CONFIG_TARGET_x86_64=y
+          {
+            printf "%s\n" "CONFIG_TARGET_x86=y"
+            printf "%s\n" "CONFIG_TARGET_x86_64=y"
 
-CONFIG_PACKAGE_luci-app-ssr-plus=y
-CONFIG_PACKAGE_shadowsocksr-libev-ssr-redir=y
-CONFIG_PACKAGE_shadowsocksr-libev-ssr-local=y
-CONFIG_PACKAGE_shadowsocksr-libev-ssr-check=y
-CONFIG_PACKAGE_shadowsocksr-libev-ssr-server=n
-# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Xray is not set
-# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_V2ray is not set
-# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_SingBox is not set
-# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Hysteria is not set
-# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Trojan is not set
-# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Trojan_GO is not set
-# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_NaiveProxy is not set
-# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Shadowsocks_Rust is not set
-# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_TUIC_Client is not set
-# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Simple_Obfs is not set
-# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Redsocks2 is not set
-# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Kcptun is not set
+            printf "%s\n" "CONFIG_PACKAGE_luci-app-ssr-plus=y"
+            printf "%s\n" "CONFIG_PACKAGE_shadowsocksr-libev-ssr-redir=y"
+            printf "%s\n" "CONFIG_PACKAGE_shadowsocksr-libev-ssr-local=y"
+            printf "%s\n" "CONFIG_PACKAGE_shadowsocksr-libev-ssr-check=y"
+            printf "%s\n" "CONFIG_PACKAGE_shadowsocksr-libev-ssr-server=n"
+            printf "%s\n" "# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Xray is not set"
+            printf "%s\n" "# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_V2ray is not set"
+            printf "%s\n" "# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_SingBox is not set"
+            printf "%s\n" "# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Hysteria is not set"
+            printf "%s\n" "# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Trojan is not set"
+            printf "%s\n" "# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Trojan_GO is not set"
+            printf "%s\n" "# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_NaiveProxy is not set"
+            printf "%s\n" "# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Shadowsocks_Rust is not set"
+            printf "%s\n" "# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_TUIC_Client is not set"
+            printf "%s\n" "# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Simple_Obfs is not set"
+            printf "%s\n" "# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Redsocks2 is not set"
+            printf "%s\n" "# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Kcptun is not set"
 
-CONFIG_PACKAGE_luci-app-turboacc=y
-EOF
+            printf "%s\n" "CONFIG_PACKAGE_luci-app-turboacc=y"
+          } > seed.config
+
           rm -f .config .config.old
           cp seed.config .config
           make defconfig
