@@ -131,6 +131,43 @@ jobs:
           cp seed.config .config
           make defconfig
 
+      # ----（可选）修 feed 的依赖，确保带上 libpcre2-8 ----
+      - name: "Hotfix: ensure shadowsocksr-libev depends on libpcre2-8"
+        shell: bash
+        run: |
+          set -e
+          cd "${SDK_DIR}"
+          MF="feeds/helloworld/shadowsocksr-libev/Makefile"
+          if [ -f "$MF" ] && ! grep -q 'libpcre2-8' "$MF"; then
+            sed -i 's/^DEPENDS:=/DEPENDS:=+libpcre2-8 /' "$MF"
+            echo "[hotfix] added +libpcre2-8 to DEPENDS"
+          fi
+
+      # ---- 强制选择 libpcre2-8 并预编 pcre2，修复你遇到的报错 ----
+      - name: "Force select libpcre2-8 & defconfig"
+        shell: bash
+        run: |
+          set -e
+          cd "${SDK_DIR}"
+          if grep -q '^CONFIG_PACKAGE_libpcre2-8=' .config; then
+            sed -i 's/^CONFIG_PACKAGE_libpcre2-8=.*/CONFIG_PACKAGE_libpcre2-8=y/' .config
+          else
+            echo 'CONFIG_PACKAGE_libpcre2-8=y' >> .config
+          fi
+          # 常见依赖，也一并打开（存在则覆盖）
+          grep -q '^CONFIG_PACKAGE_libmbedtls=' .config && \
+            sed -i 's/^CONFIG_PACKAGE_libmbedtls=.*/CONFIG_PACKAGE_libmbedtls=y/' .config || \
+            echo 'CONFIG_PACKAGE_libmbedtls=y' >> .config
+          make defconfig
+
+      - name: "Prebuild deps (pcre2, mbedtls)"
+        shell: bash
+        run: |
+          set -e
+          cd "${SDK_DIR}"
+          make package/feeds/packages/pcre2/compile V=s
+          make package/feeds/packages/mbedtls/compile V=s || true
+
       - name: "Build LuCI host tools (po2lmo)"
         shell: bash
         run: |
