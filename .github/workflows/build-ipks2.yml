@@ -1,11 +1,11 @@
-name: Build OpenWrt IPKs (23.05.5 x86_64)
+name: Build luci-app-ssr-plus (23.05.5 x86_64)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest   # 如需回退旧镜像可改成 ubuntu-22.04
+    runs-on: ubuntu-latest   # 如需旧环境可锁定 ubuntu-22.04
     env:
       DL_DIR: ${{ github.workspace }}/dl
       CCACHE_DIR: ${{ github.workspace }}/ccache
@@ -56,7 +56,7 @@ jobs:
           SDK_DIR="$(ls -d openwrt-sdk-23.05.5-x86-64_* | head -n1)"
           echo "SDK_DIR=$SDK_DIR" >> "$GITHUB_ENV"
 
-      - name: Prepare feeds
+      - name: Prepare feeds (official + helloworld)
         shell: bash
         run: |
           set -e
@@ -66,34 +66,31 @@ jobs:
             echo 'src-git luci      https://git.openwrt.org/project/luci.git;openwrt-23.05'
             echo 'src-git routing   https://git.openwrt.org/feed/routing.git;openwrt-23.05'
             echo 'src-git telephony https://git.openwrt.org/feed/telephony.git;openwrt-23.05'
-            # 拆分三方源，避免冲突
-            echo 'src-git openclash  https://github.com/vernesong/OpenClash'
             echo 'src-git helloworld https://github.com/fw876/helloworld'
-            echo 'src-git turboacc   https://github.com/chenmozhijin/turboacc.git'
           } > feeds.conf.default
 
           ./scripts/feeds clean
           ./scripts/feeds update -a
 
-          # 常见运行期依赖先放进源码树（编译期可解析，不等于装到路由器）
-          ./scripts/feeds install -p packages bash curl ca-bundle unzip ruby ruby-yaml || true
+          # 常见运行期依赖放进源码树（可选）
+          ./scripts/feeds install -p packages bash curl ca-bundle unzip || true
 
-          # 把目标包安装到 package/feeds/<feed>/...
-          ./scripts/feeds install -p openclash  luci-app-openclash
+          # 安装 SSR Plus 到 package/feeds/helloworld/...
           ./scripts/feeds install -p helloworld luci-app-ssr-plus
-          ./scripts/feeds install -p turboacc   luci-app-turboacc
 
-      - name: Build IPKs (plugins only)
+      - name: Build SSR Plus (plugins only)
         shell: bash
         run: |
           set -e
           cd "$SDK_DIR"
           rm -f .config .config.old
           make defconfig
-          # 只编包及其依赖（不会编世界）
-          make package/feeds/openclash/luci-app-openclash/{download,compile} -j"${JOBS}" V=s
-          make package/feeds/helloworld/luci-app-ssr-plus/{download,compile}  -j"${JOBS}" V=s
-          make package/feeds/turboacc/luci-app-turboacc/{download,compile}    -j"${JOBS}" V=s
+
+          echo "==> build LuCI host tools (po2lmo)"
+          make package/feeds/luci/luci-base/host/compile V=s
+
+          echo "==> build luci-app-ssr-plus (verbose)"
+          make package/feeds/helloworld/luci-app-ssr-plus/{download,compile} -j"${JOBS}" V=s
 
       - name: Collect outputs
         shell: bash
@@ -107,5 +104,12 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ipks-23.05.5-x86_64
+          name: ssrplus-ipks-23.05.5-x86_64
           path: ${{ env.OUT_DIR }}
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: ${{ env.SDK_DIR }}/logs
