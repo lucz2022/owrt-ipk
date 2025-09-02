@@ -12,45 +12,36 @@ on:
         required: true
         default: 'master'
       config_path:
-        description: '你仓库内的 .config 路径（例如 configs/x86_64.config）。若留空则要求已在 lede 目录预置 .config'
+        description: '你仓库内的 .config 路径（如 configs/x86_64.config）; 留空则要求 lede 目录已有 .config'
         required: false
         default: ''
       feeds_conf_path:
-        description: '你仓库内的 feeds.conf.default 路径（可选，例如 feeds/feeds.conf.default）'
+        description: '你仓库内的 feeds.conf.default 路径（可选）'
         required: false
         default: ''
       files_dir:
-        description: '你仓库内要覆盖到固件的 files 目录路径（可选，例如 overlay/files）'
+        description: '你仓库内的 files 目录（可选，用于覆盖固件）'
         required: false
         default: ''
       use_ccache:
-        description: '启用 ccache（加速二次构建）'
-        type: boolean
-        required: true
-        default: true
-      upload_artifacts:
-        description: '上传编译产物为 Artifacts'
+        description: '启用 ccache'
         type: boolean
         required: true
         default: true
       make_jobs:
-        description: 'make 并行线程数（留空自动 = nproc）'
+        description: 'make 并行线程数（留空=自动 nproc）'
         required: false
         default: ''
       enable_ssh:
-        description: '启用 SSH 调试（tmate），失败卡关时可选'
+        description: '启用 SSH 调试（tmate）'
         type: boolean
         required: true
         default: false
       do_release:
-        description: '构建完成后自动创建 Release 并上传产物'
+        description: '编译完成后创建 Release 并上传产物'
         type: boolean
         required: true
         default: false
-      release_tag:
-        description: 'Release tag（留空则使用 lede-年月日-时分）'
-        required: false
-        default: ''
 
 permissions:
   contents: write
@@ -62,7 +53,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
-
     env:
       TZ: Asia/Singapore
       REPO_URL: ${{ inputs.repo_url }}
@@ -71,11 +61,9 @@ jobs:
       FEEDS_CONF_PATH: ${{ inputs.feeds_conf_path }}
       FILES_DIR: ${{ inputs.files_dir }}
       USE_CCACHE: ${{ inputs.use_ccache }}
-      UPLOAD_ARTIFACTS: ${{ inputs.upload_artifacts }}
       MAKE_JOBS: ${{ inputs.make_jobs }}
       ENABLE_SSH: ${{ inputs.enable_ssh }}
       DO_RELEASE: ${{ inputs.do_release }}
-      RELEASE_TAG: ${{ inputs.release_tag }}
 
     steps:
       - name: Checkout (your helper repo)
@@ -83,17 +71,13 @@ jobs:
 
       - name: Show runner disk usage (before cleanup)
         run: |
-            df -h
-            sudo lsblk
+          df -h
+          sudo lsblk
 
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
-          sudo rm -rf /opt/hostedtoolcache/Java || true
-          sudo rm -rf /opt/hostedtoolcache/Python/3.8* || true
-          sudo rm -rf /opt/hostedtoolcache/Python/3.9* || true
+          sudo rm -rf /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /opt/hostedtoolcache/Java /opt/hostedtoolcache/Python/3.8* /opt/hostedtoolcache/Python/3.9* || true
           sudo apt-get clean
           sudo docker image prune -af || true
           df -h
@@ -120,8 +104,6 @@ jobs:
             patch pkg-config python3 python3-distutils python3-pip qemu-utils rsync \
             scons subversion swig texinfo uglifyjs unzip upx-ucl wget \
             xz-utils zlib1g-dev
-          python3 -V
-          gcc --version
 
       - name: Prepare ccache
         if: env.USE_CCACHE == 'true'
@@ -143,15 +125,13 @@ jobs:
       - name: Clone LEDE
         run: |
           git clone --depth 1 -b "${REPO_BRANCH}" "${REPO_URL}" lede
-          cd lede
-          echo "LEDE head:" && git log -1 --oneline
+          cd lede && git log -1 --oneline
 
       - name: Inject custom feeds.conf.default (optional)
         if: env.FEEDS_CONF_PATH != ''
         run: |
-          test -f "${FEEDS_CONF_PATH}" || { echo "Feeds file not found: ${FEEDS_CONF_PATH}"; exit 1; }
+          test -f "${FEEDS_CONF_PATH}" || { echo "Feeds not found: ${FEEDS_CONF_PATH}"; exit 1; }
           cp -f "${FEEDS_CONF_PATH}" lede/feeds.conf.default
-          echo "Injected feeds.conf.default from ${FEEDS_CONF_PATH}"
 
       - name: Update & install feeds
         working-directory: lede
@@ -165,25 +145,20 @@ jobs:
           test -d "${FILES_DIR}" || { echo "Files overlay not found: ${FILES_DIR}"; exit 1; }
           mkdir -p lede/files
           rsync -aH --delete "${FILES_DIR}/" lede/files/
-          echo "Injected overlay files/ from ${FILES_DIR}"
 
       - name: Prepare .config
         run: |
           set -e
           cd lede
           if [ -n "${CONFIG_PATH}" ]; then
-            echo "Using external config: ${CONFIG_PATH}"
             cp -f "${GITHUB_WORKSPACE}/${CONFIG_PATH}" .config
           fi
           if [ ! -f .config ]; then
-            echo "::error::没有找到 .config。请在 workflow 输入 config_path 指向你仓库内的配置，或预先将 .config 放在 lede/ 目录。"
+            echo "::error::缺少 .config。请在 inputs.config_path 指向你的配置，或把 .config 预先放到 lede/ 目录。"
             exit 1
           fi
-          # 生成最完整的 .config
           make defconfig
-          echo "==== Final .config head ===="
           head -n 50 .config || true
-          echo "============================"
 
       - name: Cache dl (source tarballs)
         uses: actions/cache@v4
@@ -196,8 +171,7 @@ jobs:
       - name: Download sources
         working-directory: lede
         run: |
-          MAKEJ="${MAKE_JOBS}"
-          if [ -z "$MAKEJ" ]; then MAKEJ=$(nproc); fi
+          MAKEJ="${MAKE_JOBS}"; [ -z "$MAKEJ" ] && MAKEJ=$(nproc)
           make download -j"$MAKEJ" V=s
 
       - name: Optional SSH (tmate) for debugging
@@ -210,22 +184,11 @@ jobs:
       - name: Build firmware
         working-directory: lede
         run: |
-          MAKEJ="${MAKE_JOBS}"
-          if [ -z "$MAKEJ" ]; then MAKEJ=$(nproc); fi
-          echo "Start build with -j$MAKEJ"
-          # 首次尽量并行；失败则降级串行便于日志定位
-          (make -j"$MAKEJ" V=s) || (echo "Parallel build failed, retry with -j1"; make -j1 V=s)
-          echo "Build finished."
+          MAKEJ="${MAKE_JOBS}"; [ -z "$MAKEJ" ] && MAKEJ=$(nproc)
+          (make -j"$MAKEJ" V=s) || (echo "并行失败，降级 -j1 重试"; make -j1 V=s)
           du -h --max-depth=2 bin/targets || true
 
-      - name: Summarize outputs
-        working-directory: lede
-        run: |
-          echo "Targets produced under lede/bin/targets:"
-          find bin/targets -maxdepth 3 -type f -iname '*.bin' -o -iname '*.img*' -o -iname '*.tar*' -o -iname '*.trx' -o -iname '*.itb' -o -iname '*squashfs*' | sed 's/^/ - /' || true
-
       - name: Upload artifacts (bin/targets)
-        if: env.UPLOAD_ARTIFACTS == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: lede-targets-${{ github.run_id }}
@@ -235,11 +198,10 @@ jobs:
           retention-days: 7
 
       - name: Upload artifacts (bin/packages)
-        if: env.UPLOAD_ARTIFACTS == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: lede-packages-${{ github.run_id }}
-          path: lede/bin/packages/**/* 
+          path: lede/bin/packages/**/*
           if-no-files-found: warn
           compression-level: 6
           retention-days: 7
@@ -248,17 +210,13 @@ jobs:
         if: env.DO_RELEASE == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.RELEASE_TAG != '' && env.RELEASE_TAG || format('lede-{0,date,yyyyMMdd-HHmm}', github.event.created_at) }}
-          name: ${{ env.RELEASE_TAG != '' && env.RELEASE_TAG || format('LEDE Build {0,date,yyyy-MM-dd HH:mm}', github.event.created_at) }}
+          tag_name: lede-${{ github.run_id }}-${{ github.sha }}
+          name: LEDE Build ${{ github.run_number }}
           body: |
             - Repo: ${{ env.REPO_URL }} @ ${{ env.REPO_BRANCH }}
-            - Config: ${{ env.CONFIG_PATH || '.config in repo root' }}
-            - Runner: ${{ runner.os }} / ${{ runner.name }}
+            - Config: ${{ env.CONFIG_PATH || '.config in lede/' }}
             - Triggered by: ${{ github.actor }}
           draft: false
           prerelease: false
           files: |
             lede/bin/targets/**/*
-
-      - name: Show runner disk usage (after build)
-        run: df -h
