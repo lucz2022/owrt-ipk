@@ -1,0 +1,111 @@
+name: Build OpenWrt IPKs (23.05.5 x86_64)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DL_DIR: ${{ github.workspace }}/dl
+      CCACHE_DIR: ${{ github.workspace }}/ccache
+      JOBS: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
+            gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip \
+            zlib1g-dev file wget curl ccache
+
+      - name: Prepare cache dirs
+        run: mkdir -p "${DL_DIR}" "${CCACHE_DIR}"
+
+      - name: Cache downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.DL_DIR }}
+          key: dl-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            dl-
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-
+
+      - name: Download SDK (with mirror fallback)
+        shell: bash
+        run: |
+          set -e
+          URL="https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
+          TUNA="${URL/https:\/\/downloads.openwrt.org/https:\/\/mirrors.tuna.tsinghua.edu.cn/openwrt}"
+          SAU="${URL/https:\/\/downloads.openwrt.org/https:\/\/mirrors4.sau.edu.cn/openwrt}"
+          for U in "$URL" "$TUNA" "$SAU"; do
+            echo "try $U"
+            curl -fL --retry 4 -C - -o sdk.tar.xz "$U" && break
+          done
+          tar -xJf sdk.tar.xz
+          SDK_DIR="$(ls -d openwrt-sdk-23.05.5-x86-64_* | head -n1)"
+          echo "SDK_DIR=$SDK_DIR" >> "$GITHUB_ENV"
+
+      - name: Prepare feeds
+        shell: bash
+        run: |
+          set -e
+          cd "$SDK_DIR"
+          # 写入 feeds（避免 heredoc/续行带来隐藏字符）
+          {
+            echo 'src-git packages  https://git.openwrt.org/feed/packages.git;openwrt-23.05'
+            echo 'src-git luci      https://git.openwrt.org/project/luci.git;openwrt-23.05'
+            echo 'src-git routing   https://git.openwrt.org/feed/routing.git;openwrt-23.05'
+            echo 'src-git telephony https://git.openwrt.org/feed/telephony.git;openwrt-23.05'
+            # 三方源拆开，避免冲突
+            echo 'src-git openclash  https://github.com/vernesong/OpenClash'
+            echo 'src-git helloworld https://github.com/fw876/helloworld'
+            echo 'src-git turboacc   https://github.com/chenmozhijin/turboacc.git'
+          } > feeds.conf.default
+
+          ./scripts/feeds clean
+          ./scripts/feeds update -a
+
+          # 常见运行期依赖先放进源码树（编译期可解析，不等于装到路由器）
+          ./scripts/feeds install -p packages bash curl ca-bundle unzip ruby ruby-yaml || true
+
+          # 把目标包安装到 package/feeds/<feed>/...
+          ./scripts/feeds install -p openclash  luci-app-openclash
+          ./scripts/feeds install -p helloworld luci-app-ssr-plus
+          ./scripts/feeds install -p turboacc   luci-app-turboacc
+
+      - name: Build IPKs (plugins only)
+        shell: bash
+        run: |
+          set -e
+          cd "$SDK_DIR"
+          rm -f .config .config.old
+          make defconfig
+          # 只编包及其依赖（不会编世界）
+          make package/feeds/openclash/luci-app-openclash/{download,compile} -j"${JOBS}" V=s
+          make package/feeds/helloworld/luci-app-ssr-plus/{download,compile}  -j"${JOBS}" V=s
+          make package/feeds/turboacc/luci-app-turboacc/{download,compile}    -j"${JOBS}" V=s
+
+      - name: Collect outputs
+        shell: bash
+        run: |
+          set -e
+          cd "$SDK_DIR"
+          mkdir -p _out
+          find bin/packages -type f -name "*.ipk" -exec cp -v {} _out/ \; || true
+          echo "OUT_DIR=$(pwd)/_out" >> "$GITHUB_ENV"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipks-23.05.5-x86_64
+          path: ${{ env.OUT_DIR }}
