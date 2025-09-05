@@ -1,5 +1,4 @@
 name: Build OpenWrt 23.05.5 x86_64 with SSR-Plus
-
 on:
   workflow_dispatch:
 
@@ -17,17 +16,18 @@ jobs:
             gcc-multilib gettext git libncurses5-dev libssl-dev python3 \
             unzip zlib1g-dev file wget rsync libelf-dev ccache tar xz-utils jq
 
-      - name: Download SDK & ImageBuilder (23.05.5 / x86_64)
-        env:
-          BASE_URL: "https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/"
-          SDK_TAR: "openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
-          IB_TAR:  "openwrt-imagebuilder-23.05.5-x86-64.Linux-x86_64.tar.xz"
+      - name: Download SDK & ImageBuilder (23.05.5)
         run: |
           set -e
+          BASE_URL="https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/"
+          SDK_TAR="openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
+          IB_TAR="openwrt-imagebuilder-23.05.5-x86-64.Linux-x86_64.tar.xz"
+
           wget -q "${BASE_URL}${SDK_TAR}" -O "${SDK_TAR}"
           wget -q "${BASE_URL}${IB_TAR}"  -O "${IB_TAR}"
           tar -xf "${SDK_TAR}"
           tar -xf "${IB_TAR}"
+
           echo "SDK_DIR=$(find . -maxdepth 1 -type d -name 'openwrt-sdk-*' | head -n1)" >> $GITHUB_ENV
           echo "IB_DIR=$(find . -maxdepth 1 -type d -name 'openwrt-imagebuilder-*' | head -n1)" >> $GITHUB_ENV
 
@@ -59,7 +59,6 @@ jobs:
           EOF
 
           make defconfig
-
           make package/luci-app-ssr-plus/compile -j"$(nproc)" V=s || true
           make package/shadowsocksr-libev/compile -j"$(nproc)" V=s || true
           make package/dns2socks/compile       -j"$(nproc)" V=s || true
