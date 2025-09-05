@@ -31,7 +31,7 @@ jobs:
           echo "IB_DIR=$(find . -maxdepth 1 -type d -name 'openwrt-imagebuilder-*')" >> $GITHUB_ENV
 
            - name: Build luci-app-ssr-plus with SDK (via feeds)
-        run: |
+         run: |
           set -e
           cd "$SDK_DIR"
 
