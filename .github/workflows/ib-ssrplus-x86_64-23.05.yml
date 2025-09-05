@@ -16,27 +16,33 @@ jobs:
             gcc-multilib gettext git libncurses5-dev libssl-dev python3 \
             unzip zlib1g-dev file wget rsync libelf-dev ccache tar xz-utils jq
 
-      - name: Download SDK & IB (23.05.5 x86_64)
+      - name: Download SDK & ImageBuilder (23.05.5 / x86_64)
+        env:
+          BASE_URL: https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/
+          SDK_TAR: openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+          IB_TAR:  openwrt-imagebuilder-23.05.5-x86-64.Linux-x86_64.tar.xz
         run: |
-          BASE_URL="https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/"
-          SDK=$(curl -s $BASE_URL | grep -oE "openwrt-sdk-23.05.5-x86-64.*tar.xz" | head -n1)
-          IB=$(curl -s $BASE_URL | grep -oE "openwrt-imagebuilder-23.05.5-x86-64.*tar.xz" | head -n1)
-          wget $BASE_URL$SDK
-          wget $BASE_URL$IB
-          tar -xf $SDK
-          tar -xf $IB
+          set -e
+          wget -q "${BASE_URL}${SDK_TAR}" -O "${SDK_TAR}"
+          wget -q "${BASE_URL}${IB_TAR}"  -O "${IB_TAR}"
+          tar -xf "${SDK_TAR}"
+          tar -xf "${IB_TAR}"
           echo "SDK_DIR=$(find . -maxdepth 1 -type d -name 'openwrt-sdk-*')" >> $GITHUB_ENV
           echo "IB_DIR=$(find . -maxdepth 1 -type d -name 'openwrt-imagebuilder-*')" >> $GITHUB_ENV
 
       - name: Build luci-app-ssr-plus with SDK
         run: |
-          cd $SDK_DIR
+          set -e
+          cd "$SDK_DIR"
           mkdir -p package/custom
-          git clone --depth=1 https://github.com/fw876/helloworld.git package/custom/helloworld
+          # 源：SSR-Plus + 常见小依赖（dns2socks/microsocks/ipt2socks/pdnsd-alt/redsocks2）
+          git clone --depth=1 https://github.com/fw876/helloworld.git    package/custom/helloworld
           git clone --depth=1 https://github.com/kenzok8/small-package.git package/custom/small
+
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          cat > .config <<EOF
+
+          cat > .config <<'EOF'
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-compat=y
           CONFIG_PACKAGE_luci-app-ssr-plus=y
@@ -48,19 +54,34 @@ jobs:
           CONFIG_PACKAGE_pdnsd-alt=y
           CONFIG_PACKAGE_redsocks2=y
           EOF
+
           make defconfig
+          # 逐包编译，失败时显示日志但不中断后续收集
           make package/luci-app-ssr-plus/compile -j$(nproc) V=s || true
-          find bin/ -name "*.ipk" -exec cp {} ../$IB_DIR/packages/ \;
+          make package/shadowsocksr-libev/compile -j$(nproc) V=s || true
+          make package/dns2socks/compile       -j$(nproc) V=s || true
+          make package/microsocks/compile      -j$(nproc) V=s || true
+          make package/ipt2socks/compile       -j$(nproc) V=s || true
+          make package/pdnsd-alt/compile       -j$(nproc) V=s || true
+          make package/redsocks2/compile       -j$(nproc) V=s || true
 
-      - name: Build final firmware with ImageBuilder
+          # 收集所有 ipk 到 IB 本地仓库
+          mkdir -p "../$IB_DIR/packages"
+          find bin/ -type f -name '*.ipk' -exec cp -av {} "../$IB_DIR/packages/" \;
+
+      - name: Build firmware with ImageBuilder
         run: |
-          cd $IB_DIR
-          make image PROFILE=generic \
-            PACKAGES="luci luci-compat luci-app-ssr-plus \
-                      shadowsocksr-libev-ssr-local shadowsocksr-libev-ssr-redir \
-                      dns2socks microsocks ipt2socks pdnsd-alt redsocks2"
+          set -e
+          cd "$IB_DIR"
+          PKG_LIST="luci luci-compat luci-app-ssr-plus \
+                    shadowsocksr-libev-ssr-local shadowsocksr-libev-ssr-redir \
+                    dns2socks microsocks ipt2socks pdnsd-alt redsocks2"
+          # 注意：dnsmasq 与 dnsmasq-full 二选一，默认用 dnsmasq（IB 会自动处理依赖）
+          make info
+          make image PROFILE=generic PACKAGES="$PKG_LIST"
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: openwrt-23.05-x86_64-ssrplus
+          name: openwrt-23.05.5-x86_64-ssrplus
           path: ${{ env.IB_DIR }}/bin/targets/x86/64/*
